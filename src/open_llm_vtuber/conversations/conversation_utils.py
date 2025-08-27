@@ -1,19 +1,20 @@
 import asyncio
-import re
-from typing import Optional, Union, Any, List, Dict
-import numpy as np
 import json
+import re
+from typing import Any, Dict, List, Optional, Union
+
+import numpy as np
 from loguru import logger
 
-from ..message_handler import message_handler
-from .types import WebSocketSend, BroadcastContext
-from .tts_manager import TTSTaskManager
-from ..agent.output_types import SentenceOutput, AudioOutput
-from ..agent.input_types import BatchInput, TextData, ImageData, TextSource, ImageSource
+from ..agent.input_types import BatchInput, ImageData, ImageSource, TextData, TextSource
+from ..agent.output_types import AudioOutput, SentenceOutput
 from ..asr.asr_interface import ASRInterface
 from ..live2d_model import Live2dModel
+from ..message_handler import message_handler
 from ..tts.tts_interface import TTSInterface
 from ..utils.stream_audio import prepare_audio_payload
+from .tts_manager import TTSTaskManager
+from .types import BroadcastContext, WebSocketSend
 
 
 # Convert class methods to standalone functions
@@ -157,6 +158,34 @@ async def process_user_input(
         )
         return input_text
     return user_input
+
+
+async def detect_wake_word(
+    user_input: Union[str, np.ndarray],
+    asr_engine: ASRInterface,
+    wakeup_words: list[str],
+):
+    if wakeup_words is None or len(wakeup_words) == 0:
+        logger.info("No wake words configured. Skipping wake word detection.")
+        return True, user_input
+
+    def contains_wake_word(text: str, wake_words: list[str]) -> bool:
+        text = text.lower()
+        return any(w.lower() in text for w in wake_words)
+
+    if not isinstance(user_input, np.ndarray):
+        logger.info("Input is not audio. Skipping wake word detection.")
+        return True, user_input
+
+    input_text = await asr_engine.async_transcribe_np(user_input)
+    if not contains_wake_word(input_text, wakeup_words):
+        logger.info("Transcription does not contain wake word. Ignoring input.")
+        logger.info(f"Transcription input_text: {input_text}")
+        return False, ""
+    else:
+        logger.info("Transcription contains wake word. Processing input...")
+        # input_text = input_text.replace("小爱同学", "").replace("小爱", "").strip()
+        return True, input_text
 
 
 async def finalize_conversation_turn(

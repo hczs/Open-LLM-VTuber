@@ -1,25 +1,26 @@
-from typing import Union, List, Dict, Any, Optional
 import asyncio
 import json
-from loguru import logger
-import numpy as np
+from typing import Any, Dict, List, Optional, Union
 
-from .conversation_utils import (
-    create_batch_input,
-    process_agent_output,
-    send_conversation_start_signals,
-    process_user_input,
-    finalize_conversation_turn,
-    cleanup_conversation,
-    EMOJI_LIST,
-)
-from .types import WebSocketSend
-from .tts_manager import TTSTaskManager
-from ..chat_history_manager import store_message
-from ..service_context import ServiceContext
+import numpy as np
+from loguru import logger
 
 # Import necessary types from agent outputs
-from ..agent.output_types import SentenceOutput, AudioOutput
+from ..agent.output_types import AudioOutput, SentenceOutput
+from ..chat_history_manager import store_message
+from ..service_context import ServiceContext
+from .conversation_utils import (
+    EMOJI_LIST,
+    cleanup_conversation,
+    create_batch_input,
+    detect_wake_word,
+    finalize_conversation_turn,
+    process_agent_output,
+    process_user_input,
+    send_conversation_start_signals,
+)
+from .tts_manager import TTSTaskManager
+from .types import WebSocketSend
 
 
 async def process_single_conversation(
@@ -50,15 +51,24 @@ async def process_single_conversation(
     full_response = ""  # Initialize full_response here
 
     try:
+        # 唤醒词检测
+        wake, input_text = await detect_wake_word(
+            user_input=user_input,
+            asr_engine=context.asr_engine,
+            wakeup_words=context.system_config.wakeup_words,
+        )
+        if not wake:
+            logger.info("No wake word detected. Ignoring input.")
+            return ""
+
         # Send initial signals
         await send_conversation_start_signals(websocket_send)
         logger.info(f"New Conversation Chain {session_emoji} started!")
 
         # Process user input
         input_text = await process_user_input(
-            user_input, context.asr_engine, websocket_send
+            input_text, context.asr_engine, websocket_send
         )
-
         # Create batch input
         batch_input = create_batch_input(
             input_text=input_text,

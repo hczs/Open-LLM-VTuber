@@ -1,19 +1,22 @@
 import asyncio
 import json
-from typing import Dict, Optional, Callable
+from typing import Callable, Dict, Optional
 
 import numpy as np
 from fastapi import WebSocket
 from loguru import logger
 
+from prompts import prompt_loader
+
+from ..agent.output_types import DisplayText
 from ..chat_group import ChatGroupManager
 from ..chat_history_manager import store_message
 from ..service_context import ServiceContext
+from .conversation_utils import EMOJI_LIST
 from .group_conversation import process_group_conversation
 from .single_conversation import process_single_conversation
-from .conversation_utils import EMOJI_LIST
+from .tts_manager import TTSTaskManager
 from .types import GroupConversationState
-from prompts import prompt_loader
 
 
 async def handle_conversation_trigger(
@@ -31,6 +34,7 @@ async def handle_conversation_trigger(
 ) -> None:
     """Handle triggers that start a conversation"""
     metadata = None
+    tts_manager = TTSTaskManager()
 
     if msg_type == "ai-speak-signal":
         try:
@@ -67,6 +71,21 @@ async def handle_conversation_trigger(
     else:  # mic-audio-end
         user_input = received_data_buffers[client_uid]
         received_data_buffers[client_uid] = np.array([])
+
+    # 欢迎词
+    if msg_type == "text-input" and user_input == "start":
+        # 播放欢迎词
+        welcome_speech = context.system_config.welcome_speech
+        logger.info(f"Playing welcome speech: {welcome_speech}")
+        await tts_manager.speak(
+            tts_text=welcome_speech,
+            display_text=DisplayText(text=welcome_speech),
+            live2d_model=context.live2d_model,
+            tts_engine=context.tts_engine,
+            websocket_send=websocket.send_text,
+            actions=None,
+        )
+        return None
 
     images = data.get("images")
     session_emoji = np.random.choice(EMOJI_LIST)
