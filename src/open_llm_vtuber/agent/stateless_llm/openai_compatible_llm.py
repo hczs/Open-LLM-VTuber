@@ -3,22 +3,23 @@ This class is responsible for handling asynchronous interaction with OpenAI API 
 endpoints for language generation.
 """
 
-from typing import AsyncIterator, List, Dict, Any
+from typing import Any, AsyncIterator, Dict, List
+
+from loguru import logger
 from openai import (
-    AsyncStream,
-    AsyncOpenAI,
-    APIError,
-    APIConnectionError,
-    RateLimitError,
-    NotGiven,
     NOT_GIVEN,
+    APIConnectionError,
+    APIError,
+    AsyncOpenAI,
+    AsyncStream,
+    NotGiven,
+    RateLimitError,
 )
 from openai.types.chat import ChatCompletionChunk
 from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
-from loguru import logger
 
-from .stateless_llm_interface import StatelessLLMInterface
 from ...mcpp.types import ToolCallObject
+from .stateless_llm_interface import StatelessLLMInterface
 
 
 class AsyncLLM(StatelessLLMInterface):
@@ -231,3 +232,81 @@ class AsyncLLM(StatelessLLMInterface):
                 logger.debug("Chat completion finished.")
                 await stream.close()
                 logger.debug("Stream closed.")
+
+    async def chat_completion_full(
+        self,
+        messages: List[Dict[str, Any]],
+        system: str = None,
+        tools: List[Dict[str, Any]] | NotGiven = NOT_GIVEN,
+    ) -> str | List[ToolCallObject]:
+        """
+        Generates a full chat completion (non-streaming) using the OpenAI API asynchronously.
+
+        Parameters:
+        - messages (List[Dict[str, Any]]): The list of messages to send to the API.
+        - system (str, optional): System prompt to use for this completion.
+        - tools (List[Dict[str, Any]], optional): List of tools to use for this completion.
+
+        Returns:
+        - str: The complete content from the API response.
+        - List[ToolCallObject]: If tool calls are detected in the response.
+
+        Raises:
+        - APIConnectionError: When the server cannot be reached
+        - RateLimitError: When a 429 status code is received
+        - APIError: For other API-related errors
+        """
+        try:
+            messages_with_system = messages
+            if system:
+                messages_with_system = [
+                    {"role": "system", "content": system},
+                    *messages,
+                ]
+
+            logger.debug(f"Messages: {messages_with_system}")
+
+            available_tools = tools if self.support_tools else NOT_GIVEN
+
+            response = await self.client.chat.completions.create(
+                messages=messages_with_system,
+                model=self.model,
+                stream=False,
+                temperature=self.temperature,
+                tools=available_tools,
+            )
+
+            logger.debug(f"Response: {response}")
+
+            # 如果有 tool calls
+            if (
+                self.support_tools
+                and hasattr(response.choices[0].message, "tool_calls")
+                and response.choices[0].message.tool_calls
+            ):
+                tool_calls = [
+                    ToolCallObject.from_dict(tc.dict())
+                    for tc in response.choices[0].message.tool_calls
+                ]
+                return tool_calls
+
+            # 普通文本
+            return response.choices[0].message.content or ""
+
+        except APIConnectionError as e:
+            logger.error(f"Connection error: {e}")
+            return "Error: Failed to connect to the LLM API."
+
+        except RateLimitError as e:
+            logger.error(f"Rate limit exceeded: {e}")
+            return "Error: Rate limit exceeded. Please try again later."
+
+        except APIError as e:
+            if "does not support tools" in str(e):
+                self.support_tools = False
+                logger.warning(
+                    f"{self.model} does not support tools. Disabling tool support."
+                )
+                return "__API_NOT_SUPPORT_TOOLS__"
+            logger.error(f"LLM API: Error occurred: {e}")
+            return "Error: An API error occurred while generating response."

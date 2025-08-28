@@ -236,6 +236,9 @@ class HumeAIAgent(AgentInterface):
             logger.error(f"Error in chat: {e}")
             raise
 
+    async def chat_full(self, input_data) -> str | list:
+        raise NotImplementedError
+
     def handle_interrupt(self, heard_response: str) -> None:
         """Handle user interruption (not implemented for Hume AI)"""
         pass

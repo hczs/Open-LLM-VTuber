@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
 
 class ImageSource(Enum):
@@ -71,6 +71,19 @@ class BaseInput:
     """Base class for all input types"""
 
     pass
+
+
+@dataclass
+class StrInput(BaseInput):
+    """
+    Simple string input type
+
+    Attributes:
+        text: The input text
+    """
+
+    user: str
+    system: str
 
 
 @dataclass

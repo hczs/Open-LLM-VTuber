@@ -165,10 +165,6 @@ async def detect_wake_word(
     asr_engine: ASRInterface,
     wakeup_words: list[str],
 ):
-    if wakeup_words is None or len(wakeup_words) == 0:
-        logger.info("No wake words configured. Skipping wake word detection.")
-        return True, user_input
-
     def contains_wake_word(text: str, wake_words: list[str]) -> bool:
         text = text.lower()
         return any(w.lower() in text for w in wake_words)
@@ -178,9 +174,13 @@ async def detect_wake_word(
         return True, user_input
 
     input_text = await asr_engine.async_transcribe_np(user_input)
+
+    if wakeup_words is None or len(wakeup_words) == 0:
+        logger.info("No wake words configured. Skipping wake word detection.")
+        return True, user_input
+
     if not contains_wake_word(input_text, wakeup_words):
         logger.info("Transcription does not contain wake word. Ignoring input.")
-        logger.info(f"Transcription input_text: {input_text}")
         return False, ""
     else:
         logger.info("Transcription contains wake word. Processing input...")

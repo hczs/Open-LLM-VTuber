@@ -1,5 +1,7 @@
 import abc
-from typing import AsyncIterator, List, Dict, Any
+from typing import Any, AsyncIterator, Dict, List
+
+from ...mcpp.types import ToolCallObject
 
 
 class StatelessLLMInterface(metaclass=abc.ABCMeta):
@@ -55,6 +57,54 @@ class StatelessLLMInterface(metaclass=abc.ABCMeta):
 
         Yields:
         - str: The content of each chunk from the API response.
+
+        Raises:
+        - APIConnectionError: When the server cannot be reached
+        - RateLimitError: When a 429 status code is received
+        - APIError: For other API-related errors
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def chat_completion_full(
+        self,
+        messages: List[Dict[str, Any]],
+        system: str = None,
+        tools: List[Dict[str, Any]] = None,
+    ) -> str | List[ToolCallObject]:
+        """
+        Generates a full chat completion asynchronously, returning the complete response
+        including any intermediate steps.
+
+        This function does not store memory or user messages.
+
+        Parameters:
+        - messages (List[Dict[str, Any]]): The list of messages to send to the API.
+        - system (str, optional): System prompt to use for this completion.
+        - tools (List[Dict[str, str]], optional): List of tools to use for this completion.
+            - Each tool should follow the format:
+            {
+                "name": "tool_name",
+                "description": "tool_description",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "param1": {
+                            "type": "string",
+                            "description": "Description of param1"
+                        },
+                        "param2": {
+                            "type": "integer",
+                            "description": "Description of param2"
+                        }
+                    },
+                    "required": ["param1"]
+                }
+            }
+
+        Returns:
+        - str | List[ToolCallObject]: The full response from the API, which may include
+        tool call objects if tools were used.
 
         Raises:
         - APIConnectionError: When the server cannot be reached

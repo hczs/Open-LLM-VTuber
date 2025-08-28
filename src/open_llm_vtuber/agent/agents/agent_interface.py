@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import AsyncIterator
+
 from loguru import logger
 
-from ..output_types import BaseOutput
+from ...mcpp.types import ToolCallObject
 from ..input_types import BaseInput
+from ..output_types import BaseOutput
 
 
 class AgentInterface(ABC):
@@ -27,6 +29,25 @@ class AgentInterface(ABC):
         """
         logger.critical("Agent: No chat function set.")
         raise ValueError("Agent: No chat function set.")
+
+    @abstractmethod
+    async def chat_full(self, input_data: BaseInput) -> str | list[ToolCallObject]:
+        """
+        Chat with the agent asynchronously, returning full response including intermediate steps.
+
+        This function should be implemented by the agent.
+        Output type depends on the agent's output_type:
+        - SentenceOutput: For text-based responses with display and TTS text
+        - AudioOutput: For direct audio output with display text and transcript
+
+        Args:
+            input_data: BaseInput - User input data
+
+        Returns:
+            AsyncIterator[BaseOutput] - Stream of agent outputs including intermediate steps
+        """
+        logger.critical("Agent: No chat_full function set.")
+        raise ValueError("Agent: No chat_full function set.")
 
     @abstractmethod
     def handle_interrupt(self, heard_response: str) -> None:

@@ -3,10 +3,11 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
+
 from loguru import logger
 
-from ..agent.output_types import DisplayText, Actions
+from ..agent.output_types import Actions, DisplayText
 from ..live2d_model import Live2dModel
 from ..tts.tts_interface import TTSInterface
 from ..utils.stream_audio import prepare_audio_payload

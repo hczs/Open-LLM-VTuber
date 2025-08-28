@@ -1,33 +1,27 @@
-from typing import (
-    AsyncIterator,
-    List,
-    Dict,
-    Any,
-    Callable,
-    Literal,
-    Union,
-    Optional,
-)
+from typing import Any, AsyncIterator, Callable, Dict, List, Literal, Optional, Union
+
 from loguru import logger
-from .agent_interface import AgentInterface
-from ..output_types import SentenceOutput, DisplayText
-from ..stateless_llm.stateless_llm_interface import StatelessLLMInterface
+
+from prompts import prompt_loader
+
+from ...chat_history_manager import get_history
+from ...config_manager import TTSPreprocessorConfig
+from ...mcpp.json_detector import StreamJSONDetector
+from ...mcpp.tool_executor import ToolExecutor
+from ...mcpp.tool_manager import ToolManager
+from ...mcpp.types import ToolCallObject
+from ..input_types import BatchInput, StrInput, TextSource
+from ..output_types import DisplayText, SentenceOutput
 from ..stateless_llm.claude_llm import AsyncLLM as ClaudeAsyncLLM
 from ..stateless_llm.openai_compatible_llm import AsyncLLM as OpenAICompatibleAsyncLLM
-from ...chat_history_manager import get_history
+from ..stateless_llm.stateless_llm_interface import StatelessLLMInterface
 from ..transformers import (
-    sentence_divider,
     actions_extractor,
-    tts_filter,
     display_processor,
+    sentence_divider,
+    tts_filter,
 )
-from ...config_manager import TTSPreprocessorConfig
-from ..input_types import BatchInput, TextSource
-from prompts import prompt_loader
-from ...mcpp.tool_manager import ToolManager
-from ...mcpp.json_detector import StreamJSONDetector
-from ...mcpp.types import ToolCallObject
-from ...mcpp.tool_executor import ToolExecutor
+from .agent_interface import AgentInterface
 
 
 class BasicMemoryAgent(AgentInterface):
@@ -669,6 +663,15 @@ class BasicMemoryAgent(AgentInterface):
         chat_func_decorated = self._chat_function_factory()
         async for output in chat_func_decorated(input_data):
             yield output
+    
+    async def chat_full(self, input_data: StrInput) -> str | list[ToolCallObject]:
+        messages = [
+            {"role": "system", "content": input_data.system},
+            {"role": "user", "content": input_data.user},
+        ]
+        response = await self._llm.chat_completion_full(messages=messages)
+        return response
+        
 
     def reset_interrupt(self) -> None:
         """Reset interrupt flag."""

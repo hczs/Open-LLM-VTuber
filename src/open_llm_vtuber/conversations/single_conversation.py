@@ -5,10 +5,13 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 from loguru import logger
 
+from ..agent.input_types import StrInput
+
 # Import necessary types from agent outputs
 from ..agent.output_types import AudioOutput, SentenceOutput
 from ..chat_history_manager import store_message
-from ..service_context import ServiceContext
+from ..service_context import AgentInterface, ServiceContext
+from ..utils.response_util import extract_json
 from .conversation_utils import (
     EMOJI_LIST,
     cleanup_conversation,
@@ -19,8 +22,164 @@ from .conversation_utils import (
     process_user_input,
     send_conversation_start_signals,
 )
-from .tts_manager import TTSTaskManager
+from .tts_manager import DisplayText, TTSTaskManager
 from .types import WebSocketSend
+
+system_intent_template = """
+你是一个意图识别助手，需要将用户输入的自然语言识别为明确的意图，并严格返回 JSON 格式结果。
+
+要求：
+1. 如果用户只是闲聊（例如打招呼、问天气、问数字人感受），请返回：
+{
+  "intent": "chat"
+}
+
+2. 如果用户的输入涉及执行命令（打开课程），请返回：
+{
+  "intent": "command",
+  "action": "<动作名称: 打开课程 -> open_course>",
+  "index": <序号,课程index,下标,从0开始计算>,
+  "msg": "<数字人需要对用户说的话>"
+}
+
+3.如果用户的问题是**命令**,但是用户命令不是**打开课程**,而是**其他命令**, 请返回:
+{
+    "intent": "unknown"
+}
+
+4.如果用户的命令属于"打开课程",但是描述不够完整(比如说不知道第几个课程,课程名称描述不清)，请返回:
+{
+    "intent": "improve",
+    "msg": "<具体需要补充的内容(比如说需要确认课程名称,需要确认课程序号),例如: 您好,没有理解您的意思,请您描述的更具体一些>"
+} 
+
+约束：
+- 必须输出合法 JSON，不要有多余解释。
+- "index" 为整数,不能为空.
+- "msg" 要是自然的中文回答。
+- 你现在只能接受"打开课程"的命令，其他命令都返回"unknown"
+
+下面是一些例子：
+
+用户输入: "你好啊"
+返回:
+{
+  "intent": "chat"
+}
+
+用户输入: "帮我打开推荐课程中的第二个视频"
+返回:
+{
+  "intent": "command",
+  "action": "open_course",
+  "index": 1,
+  "msg": "好的，我现在为您打开第二个视频"
+}
+
+用户输入: "帮我打开认识传出神经系统药物课程"
+返回:
+{
+  "intent": "command",
+  "action": "open_course",
+  "index": 1,
+  "msg": "好的，我现在为您打开认识传出神经系统药物课程视频"
+}
+
+用户输入: "帮我打开推荐课程中的课程"
+返回:
+{
+  "intent": "improve",
+  "msg": "您好，没有理解您的意思，请您描述的更具体一些"
+}
+
+所有课程信息: <context>
+
+"""
+
+user_prompt = """
+用户问题: <question>
+"""
+
+course_json = """
+[
+  {
+    "index": 0,
+    "title": "认识药物学",
+    "imageIndex": 1,
+    "type": "视频课程",
+    "tags": ["药物基础", "药物学", "基础概念"],
+    "description": "掌握药物、药物学、药效学、药动学的概念及相互关系，了解药物学发展史。",
+    "courseTime": "0.14小时",
+    "compatibility": null,
+    "level": null
+  },
+  {
+    "index": 1,
+    "title": "认识传出神经系统药物",
+    "imageIndex": 2,
+    "type": "视频课程",
+    "tags": ["神经系统", "生理效应", "神经药物"],
+    "description": "掌握传出神经系统递质、受体和主要生理效应，熟悉传出神经系统药物的分类原则，了解传出神经的分类和特点。",
+    "courseTime": "0.15小时",
+    "compatibility": null,
+    "level": null
+  },
+  {
+    "index": 2,
+    "title": "镇静催眠药",
+    "imageIndex": 3,
+    "type": "视频课程",
+    "tags": ["中枢神经", "镇静", "催眠药"],
+    "description": "掌握苯二氮䓬类药物的作用和用途、不良反应以及用药指导，熟悉巴比妥类药物的主要特点和用药指导，了解其他常用镇静催眠药的主要特点。",
+    "courseTime": "0.16小时",
+    "compatibility": null,
+    "level": null
+  },
+  {
+    "index": 3,
+    "title": "抗高血压药",
+    "imageIndex": 4,
+    "type": "视频课程",
+    "tags": ["中枢神经", "抗高血压", "高血压"],
+    "description": "掌握一线抗高血压药的主要特点和用药指导，熟悉高血压药的作用环节和类别，了解其他抗高血压药的主要特点。",
+    "courseTime": "0.12小时",
+    "compatibility": null,
+    "level": null
+  },
+  {
+    "index": 4,
+    "title": "影响甲状腺功能的药物",
+    "imageIndex": 5,
+    "type": "视频课程",
+    "tags": ["内分泌", "甲状腺", "激素"],
+    "description": "掌握抗甲状腺药的种类、作用和用途、不良反应及用药指导，熟悉或了解甲状腺激素的主要特点和用药指导。",
+    "courseTime": "0.12小时",
+    "compatibility": null,
+    "level": null
+  },
+  {
+    "index": 5,
+    "title": "呼吸系统药物",
+    "imageIndex": 6,
+    "type": "视频课程",
+    "tags": ["内脏系统", "平喘药", "呼吸系统"],
+    "description": "掌握平喘药的种类、主要特点和用药指导，熟悉镇咳药、祛痰药的种类、主要特点和用药指导，了解药物镇咳、祛痰、平喘的作用机制和常用复方制剂。",
+    "courseTime": "0.14小时",
+    "compatibility": null,
+    "level": null
+  }
+]
+"""
+
+system_intent_template = system_intent_template.replace("<context>", course_json)
+
+
+async def intention_recognition(
+    input_text: str, agent_engine: AgentInterface, from_name: str
+):
+    input_text = user_prompt.replace("<question>", input_text)
+    str_input = StrInput(system=system_intent_template, user=input_text)
+    return await agent_engine.chat_full(str_input)
 
 
 async def process_single_conversation(
@@ -57,8 +216,83 @@ async def process_single_conversation(
             asr_engine=context.asr_engine,
             wakeup_words=context.system_config.wakeup_words,
         )
+        logger.info(f"user question: {input_text}")
         if not wake:
             logger.info("No wake word detected. Ignoring input.")
+            return ""
+
+        # 意图识别
+        intent = await intention_recognition(
+            input_text=input_text,
+            agent_engine=context.agent_engine,
+            from_name=context.character_config.human_name,
+        )
+
+        logger.info(f"Intent recognition result: {intent}")
+
+        if isinstance(intent, str):
+            intent = extract_json(text=intent)
+            logger.info(f"Extracted intent: {intent}")
+
+        next_step = "chat"
+        if (
+            intent is None
+            or not isinstance(intent, dict)
+            or intent["intent"] == "chat"
+            or intent["intent"] == "unknown"
+        ):
+            logger.warning("Failed to extract valid intent JSON. Proceeding as chat.")
+            next_step = "chat"
+        else:
+            next_step = intent["intent"]
+
+        if (
+            next_step == "improve"
+            and isinstance(intent, dict)
+            and intent["msg"] is not None
+        ):
+            # send audio msg
+            await tts_manager.speak(
+                tts_text=intent["msg"],
+                display_text=DisplayText(text=intent["msg"]),
+                live2d_model=context.live2d_model,
+                tts_engine=context.tts_engine,
+                websocket_send=websocket_send,
+                actions=None,
+            )
+            # Wait for any pending TTS tasks
+            if tts_manager.task_list:
+                await asyncio.gather(*tts_manager.task_list)
+                await websocket_send(json.dumps({"type": "backend-synth-complete"}))
+            return ""
+        elif (
+            next_step == "command"
+            and isinstance(intent, dict)
+            and intent["msg"] is not None
+        ):
+            intent["className"] = "card-block"
+            # send audio msg
+            await tts_manager.speak(
+                tts_text=intent["msg"],
+                display_text=DisplayText(text=intent["msg"]),
+                live2d_model=context.live2d_model,
+                tts_engine=context.tts_engine,
+                websocket_send=websocket_send,
+                actions=None,
+            )
+            # send command msg
+            await websocket_send(
+                json.dumps(
+                    {
+                        "type": "command",
+                        "data": json.dumps(intent, ensure_ascii=False),
+                    }
+                )
+            )
+            # Wait for any pending TTS tasks
+            if tts_manager.task_list:
+                await asyncio.gather(*tts_manager.task_list)
+                await websocket_send(json.dumps({"type": "backend-synth-complete"}))
             return ""
 
         # Send initial signals
