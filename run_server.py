@@ -1,17 +1,18 @@
-import os
-import sys
-import atexit
-import asyncio
 import argparse
+import asyncio
+import atexit
+import os
 import subprocess
+import sys
 from pathlib import Path
+
 import tomli
 import uvicorn
 from loguru import logger
-from upgrade_codes.upgrade_manager import UpgradeManager
 
-from src.open_llm_vtuber.server import WebSocketServer
 from src.open_llm_vtuber.config_manager import Config, read_yaml, validate_config
+from src.open_llm_vtuber.server import WebSocketServer
+from upgrade_codes.upgrade_manager import UpgradeManager
 
 os.environ["HF_HOME"] = str(Path(__file__).parent / "models")
 os.environ["MODELSCOPE_CACHE"] = str(Path(__file__).parent / "models")
@@ -161,6 +162,8 @@ def run(console_log_level: str):
         host=server_config.host,
         port=server_config.port,
         log_level=console_log_level.lower(),
+        ws_ping_timeout=60,
+        ws_max_queue=128,
     )
 
 
@@ -175,4 +178,5 @@ if __name__ == "__main__":
         )
     if args.hf_mirror:
         os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+    run(console_log_level=console_log_level)
     run(console_log_level=console_log_level)
