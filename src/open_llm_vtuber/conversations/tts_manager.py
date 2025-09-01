@@ -36,6 +36,7 @@ class TTSTaskManager:
         live2d_model: Live2dModel,
         tts_engine: TTSInterface,
         websocket_send: WebSocketSend,
+        on_complete=None,
     ) -> None:
         """
         Queue a TTS task while maintaining order of delivery.
@@ -57,7 +58,7 @@ class TTSTaskManager:
             # Start sender task if not running
             if not self._sender_task or self._sender_task.done():
                 self._sender_task = asyncio.create_task(
-                    self._process_payload_queue(websocket_send)
+                    self._process_payload_queue(websocket_send, on_complete)
                 )
 
             await self._send_silent_payload(display_text, actions, current_sequence)
@@ -74,7 +75,7 @@ class TTSTaskManager:
         # Start sender task if not running
         if not self._sender_task or self._sender_task.done():
             self._sender_task = asyncio.create_task(
-                self._process_payload_queue(websocket_send)
+                self._process_payload_queue(websocket_send, on_complete)
             )
 
         # Create and queue the TTS task
@@ -90,7 +91,9 @@ class TTSTaskManager:
         )
         self.task_list.append(task)
 
-    async def _process_payload_queue(self, websocket_send: WebSocketSend) -> None:
+    async def _process_payload_queue(
+        self, websocket_send: WebSocketSend, on_complete
+    ) -> None:
         """
         Process and send payloads in correct order.
         Runs continuously until all payloads are processed.
@@ -109,6 +112,9 @@ class TTSTaskManager:
                     await websocket_send(json.dumps(next_payload))
                     self._next_sequence_to_send += 1
 
+                if on_complete:
+                    logger.info("TTS task complete, calling on_complete callback")
+                    await on_complete()
                 self._payload_queue.task_done()
 
             except asyncio.CancelledError:
