@@ -11,7 +11,6 @@ from ..agent.input_types import StrInput
 from ..agent.output_types import AudioOutput, SentenceOutput
 from ..chat_history_manager import store_message
 from ..service_context import AgentInterface, ServiceContext
-from ..utils.response_util import extract_json
 from .conversation_utils import (
     EMOJI_LIST,
     cleanup_conversation,
@@ -22,7 +21,7 @@ from .conversation_utils import (
     process_user_input,
     send_conversation_start_signals,
 )
-from .tts_manager import DisplayText, TTSTaskManager
+from .tts_manager import TTSTaskManager
 from .types import WebSocketSend
 
 system_intent_template = """
@@ -222,78 +221,77 @@ async def process_single_conversation(
             return ""
 
         # 意图识别
-        intent = await intention_recognition(
-            input_text=input_text,
-            agent_engine=context.agent_engine,
-            from_name=context.character_config.human_name,
-        )
+        # intent = await intention_recognition(
+        #     input_text=input_text,
+        #     agent_engine=context.agent_engine,
+        #     from_name=context.character_config.human_name,
+        # )
 
-        logger.info(f"Intent recognition result: {intent}")
+        # logger.info(f"Intent recognition result: {intent}")
 
-        if isinstance(intent, str):
-            intent = extract_json(text=intent)
-            logger.info(f"Extracted intent: {intent}")
+        # if isinstance(intent, str):
+        #     intent = extract_json(text=intent)
+        #     logger.info(f"Extracted intent: {intent}")
 
-        next_step = "chat"
-        if (
-            intent is None
-            or not isinstance(intent, dict)
-            or intent["intent"] == "chat"
-            or intent["intent"] == "unknown"
-        ):
-            logger.warning("Failed to extract valid intent JSON. Proceeding as chat.")
-            next_step = "chat"
-        else:
-            next_step = intent["intent"]
+        # next_step = "chat"
+        # if (
+        #     intent is None
+        #     or not isinstance(intent, dict)
+        #     or intent["intent"] == "chat"
+        #     or intent["intent"] == "unknown"
+        # ):
+        #     logger.warning("Failed to extract valid intent JSON. Proceeding as chat.")
+        #     next_step = "chat"
+        # else:
+        #     next_step = intent["intent"]
 
-        if (
-            next_step == "improve"
-            and isinstance(intent, dict)
-            and intent["msg"] is not None
-        ):
-            # send audio msg
-            await tts_manager.speak(
-                tts_text=intent["msg"],
-                display_text=DisplayText(text=intent["msg"]),
-                live2d_model=context.live2d_model,
-                tts_engine=context.tts_engine,
-                websocket_send=websocket_send,
-                actions=None,
-            )
-            # Wait for any pending TTS tasks
-            if tts_manager.task_list:
-                await asyncio.gather(*tts_manager.task_list)
-                await websocket_send(json.dumps({"type": "backend-synth-complete"}))
-            return ""
-        elif (
-            next_step == "command"
-            and isinstance(intent, dict)
-            and intent["msg"] is not None
-        ):
-            intent["className"] = "card-block"
-            # send audio msg
-            await tts_manager.speak(
-                tts_text=intent["msg"],
-                display_text=DisplayText(text=intent["msg"]),
-                live2d_model=context.live2d_model,
-                tts_engine=context.tts_engine,
-                websocket_send=websocket_send,
-                actions=None,
-            )
-            # send command msg
-            await websocket_send(
-                json.dumps(
-                    {
-                        "type": "command",
-                        "data": json.dumps(intent, ensure_ascii=False),
-                    }
-                )
-            )
-            # Wait for any pending TTS tasks
-            if tts_manager.task_list:
-                await asyncio.gather(*tts_manager.task_list)
-                await websocket_send(json.dumps({"type": "backend-synth-complete"}))
-            return ""
+        # if (
+        #     next_step == "improve"
+        #     and isinstance(intent, dict)
+        #     and intent["msg"] is not None
+        # ):
+        #     # send audio msg
+        #     await tts_manager.speak(
+        #         tts_text=intent["msg"],
+        #         display_text=DisplayText(text=intent["msg"]),
+        #         live2d_model=context.live2d_model,
+        #         tts_engine=context.tts_engine,
+        #         websocket_send=websocket_send,
+        #         actions=None,
+        #     )
+        #     # Wait for any pending TTS tasks
+        #     if tts_manager.task_list:
+        #         await asyncio.gather(*tts_manager.task_list)
+        #         await websocket_send(json.dumps({"type": "backend-synth-complete"}))
+        #     return ""
+        # elif (
+        #     next_step == "command"
+        #     and isinstance(intent, dict)
+        #     and intent["msg"] is not None
+        # ):
+        #     intent["className"] = "card-block"
+        #     # send audio msg
+        #     await tts_manager.speak(
+        #         tts_text=intent["msg"],
+        #         display_text=DisplayText(text=intent["msg"]),
+        #         live2d_model=context.live2d_model,
+        #         tts_engine=context.tts_engine,
+        #         websocket_send=websocket_send,
+        #         actions=None,
+        #         on_complete=lambda: websocket_send(
+        #             json.dumps(
+        #                 {
+        #                     "type": "command",
+        #                     "data": json.dumps(intent, ensure_ascii=False),
+        #                 }
+        #             )
+        #         ),
+        #     )
+        #     # Wait for any pending TTS tasks
+        #     if tts_manager.task_list:
+        #         await asyncio.gather(*tts_manager.task_list)
+        #         await websocket_send(json.dumps({"type": "backend-synth-complete"}))
+        #     return ""
 
         # Send initial signals
         await send_conversation_start_signals(websocket_send)

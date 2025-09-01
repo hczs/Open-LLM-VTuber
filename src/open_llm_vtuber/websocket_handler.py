@@ -1,32 +1,33 @@
-from typing import Dict, List, Optional, Callable, TypedDict
-from fastapi import WebSocket, WebSocketDisconnect
 import asyncio
 import json
 from enum import Enum
+from typing import Callable, Dict, List, Optional, TypedDict
+
 import numpy as np
+from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from .service_context import ServiceContext
 from .chat_group import (
     ChatGroupManager,
-    handle_group_operation,
-    handle_client_disconnect,
     broadcast_to_group,
+    handle_client_disconnect,
+    handle_group_operation,
 )
-from .message_handler import message_handler
-from .utils.stream_audio import prepare_audio_payload
 from .chat_history_manager import (
     create_new_history,
-    get_history,
     delete_history,
+    get_history,
     get_history_list,
 )
-from .config_manager.utils import scan_config_alts_directory, scan_bg_directory
+from .config_manager.utils import scan_bg_directory, scan_config_alts_directory
 from .conversations.conversation_handler import (
     handle_conversation_trigger,
     handle_group_interrupt,
     handle_individual_interrupt,
 )
+from .message_handler import message_handler
+from .service_context import ServiceContext
+from .utils.stream_audio import prepare_audio_payload
 
 
 class MessageType(Enum):
@@ -229,8 +230,10 @@ class WebSocketHandler:
                     )
                     continue
 
-        except WebSocketDisconnect:
-            logger.info(f"Client {client_uid} disconnected")
+        except WebSocketDisconnect as e:
+            logger.warning(
+                f"Client {client_uid} disconnected, code={e.code}, reason={e.reason}"
+            )
             raise
         except Exception as e:
             logger.error(f"Fatal error in WebSocket communication: {e}")
@@ -309,6 +312,7 @@ class WebSocketHandler:
 
         # Call context close to clean up resources (e.g., MCPClient)
         context = self.client_contexts.get(client_uid)
+
         if context:
             await context.close()
 
@@ -609,4 +613,5 @@ class WebSocketHandler:
         try:
             await websocket.send_json({"type": "heartbeat-ack"})
         except Exception as e:
+            logger.error(f"Error sending heartbeat acknowledgment: {e}")
             logger.error(f"Error sending heartbeat acknowledgment: {e}")
