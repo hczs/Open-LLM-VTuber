@@ -1,7 +1,8 @@
-from typing import Dict, Optional, Tuple
 import asyncio
-from loguru import logger
 from collections import defaultdict
+from typing import Dict, Optional, Tuple
+
+from loguru import logger
 
 
 class MessageHandler:

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
@@ -21,7 +22,7 @@ from .conversation_utils import (
     process_user_input,
     send_conversation_start_signals,
 )
-from .tts_manager import TTSTaskManager
+from .tts_manager import DisplayText, TTSTaskManager
 from .types import WebSocketSend
 
 system_intent_template = """
@@ -209,15 +210,56 @@ async def process_single_conversation(
     full_response = ""  # Initialize full_response here
 
     try:
+        # 欢迎词
+        if metadata and metadata["msg_type"] == "text-input" and user_input == "start":
+            await send_conversation_start_signals(websocket_send)
+            # 播放欢迎词
+            welcome_speech = context.system_config.welcome_speech
+            # 根据当前时间替换欢迎词中的time_greeting
+            if "{time_greeting}" in welcome_speech:
+                current_hour = datetime.now().hour
+                if 5 <= current_hour < 12:
+                    time_greeting = "上午好"
+                elif 12 <= current_hour < 18:
+                    time_greeting = "下午好"
+                else:
+                    time_greeting = "晚上好"
+                welcome_speech = welcome_speech.replace(
+                    "{time_greeting}", time_greeting
+                )
+            logger.info(f"Playing welcome speech: {welcome_speech}")
+            await tts_manager.speak(
+                tts_text=welcome_speech,
+                display_text=DisplayText(text=welcome_speech),
+                live2d_model=context.live2d_model,
+                tts_engine=context.tts_engine,
+                websocket_send=websocket_send,
+                actions=None,
+            )
+            # if tts_manager.task_list:
+            #     await asyncio.gather(*tts_manager.task_list)
+            #     await websocket_send(json.dumps({"type": "backend-synth-complete"}))
+            await finalize_conversation_turn(
+                tts_manager=tts_manager,
+                websocket_send=websocket_send,
+                client_uid=client_uid,
+            )
+            return ""
         # 唤醒词检测
         wake, input_text = await detect_wake_word(
             user_input=user_input,
             asr_engine=context.asr_engine,
             wakeup_words=context.system_config.wakeup_words,
+            websocket_send=websocket_send,
         )
         logger.info(f"user question: {input_text}")
         if not wake:
             logger.info("No wake word detected. Ignoring input.")
+            await finalize_conversation_turn(
+                tts_manager=tts_manager,
+                websocket_send=websocket_send,
+                client_uid=client_uid,
+            )
             return ""
 
         # 意图识别

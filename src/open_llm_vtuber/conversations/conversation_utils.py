@@ -164,6 +164,7 @@ async def detect_wake_word(
     user_input: Union[str, np.ndarray],
     asr_engine: ASRInterface,
     wakeup_words: list[str],
+    websocket_send: WebSocketSend,
 ):
     def contains_wake_word(text: str, wake_words: list[str]) -> bool:
         text = text.lower()
@@ -181,9 +182,12 @@ async def detect_wake_word(
 
     if not contains_wake_word(input_text, wakeup_words):
         logger.info("Transcription does not contain wake word. Ignoring input.")
-        return False, ""
+        return False, input_text
     else:
         logger.info("Transcription contains wake word. Processing input...")
+        await websocket_send(
+            json.dumps({"type": "user-input-transcription", "text": input_text})
+        )
         # input_text = input_text.replace("小爱同学", "").replace("小爱", "").strip()
         return True, input_text
 
@@ -206,6 +210,9 @@ async def finalize_conversation_turn(
         if not response:
             logger.warning(f"No playback completion response from {client_uid}")
             return
+        logger.info(
+            f"Received playback completion from {client_uid}, response: {response}"
+        )
 
     await websocket_send(json.dumps({"type": "force-new-message"}))
 
@@ -229,7 +236,7 @@ async def send_conversation_end_signal(
         "type": "control",
         "text": "conversation-chain-end",
     }
-
+    logger.info(f"Sending conversation end signal {session_emoji}...")
     await websocket_send(json.dumps(chain_end_msg))
 
     if broadcast_ctx and broadcast_ctx.broadcast_func and broadcast_ctx.group_members:
